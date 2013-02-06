@@ -117,7 +117,7 @@
 -module(jsf).
 -behaviour(contract_proto).
 
--include("ubf.hrl").
+-include_lib("ubf/include/ubf.hrl").
 
 -export([proto_vsn/0, proto_driver/0, proto_packet_type/0]).
 -export([encode/1, encode/2, do_encode/2]).
@@ -200,7 +200,7 @@ encode_tuple(X, Mod) when not is_atom(element(1, X)) ->
     {struct, [{<<"$T">>, encode_tuple(1, X, [], Mod)}]};
 encode_tuple(X, Mod) ->
     RecName = element(1, X),
-    Y = {RecName, tuple_size(X)-1},
+    Y = {RecName, tuple_size(X)},
     case lists:member(Y, Mod:contract_records()) of
         false ->
             {struct, [{<<"$T">>, encode_tuple(1, X, [], Mod)}]};
@@ -219,7 +219,7 @@ encode_tuple(N, X, Acc, Mod) ->
 encode_record(N, X, _Keys, Acc, _Mod) when is_integer(N), N > tuple_size(X) ->
     Acc;
 encode_record(N, X, Keys, Acc, Mod) ->
-    NewAcc = [{atom_to_binary(element(N-1, Keys)), do_encode(element(N, X), Mod)}|Acc],
+    NewAcc = [{atom_to_binary(element(1,element(N-1, Keys))), do_encode(element(N, X), Mod)}|Acc],
     encode_record(N+1, X, Keys, NewAcc, Mod).
 
 
@@ -260,7 +260,7 @@ decode(X, Mod, #state{safe=Safe, binary=Old}=State) when is_binary(X) ->
                         {'EXIT', _} ->
                             {error, syntax_error};
                         JSON ->
-                            {ok, do_decode(JSON, Mod, Safe), <<>>}
+                            {done, do_decode(JSON, Mod, Safe), <<>>, undefined}
                     end
             end
     end.
@@ -325,13 +325,13 @@ decode_tuple([H|T], Acc, Mod, Safe) ->
 
 decode_record(RecNameStr, X, Mod, Safe) ->
     RecName = decode_atom(RecNameStr, Safe),
-    Y = {RecName, length(X)},
+    Y = {RecName, length(X)+1},
     Keys = Mod:contract_record(Y),
     decode_record(RecName, Keys, X, [], Mod, Safe).
 
 decode_record(RecName, [], [], Acc, _Mod, _Safe) ->
     list_to_tuple([RecName|lists:reverse(Acc)]);
-decode_record(RecName, [H|T], X, Acc, Mod, Safe) ->
+decode_record(RecName, [{H,_,_}|T], X, Acc, Mod, Safe) ->
     K = atom_to_binary(H),
     case lists:keytake(K, 1, X) of
         {value, {K, V}, NewX} ->

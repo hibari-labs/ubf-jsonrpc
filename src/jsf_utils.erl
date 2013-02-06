@@ -2,7 +2,7 @@
 %%%-------------------------------------------------------------------
 
 -module(jsf_utils).
--include("ubf.hrl").
+-include_lib("ubf/include/ubf.hrl").
 
 -export([ubf_contract/1, ubf_contract/2]).
 
@@ -59,14 +59,14 @@ typeref({prim,Min,Max,Tag},Mod) ->
 typeref({tuple,Elements},Mod) ->
     io_lib:format("{\"$T\" : [ ~s ]}", [join([typeref(Element,Mod) || Element <- Elements], ", ")]);
 %% record
-typeref({record,RecName,Elements},Mod) when is_atom(RecName) ->
-    Values = tl(tl(Elements)),
-    RecordKey = {RecName,length(Elements)-2},
+typeref({record,RecName,Elements0},Mod) when is_atom(RecName) ->
+    Elements = tl(tuple_to_list(Elements0)),
+    RecordKey = {RecName,length(Elements)},
     Fields = Mod:contract_record(RecordKey),
     io_lib:format("{\"$R\" : \"~p\", ~s}",
                   [RecName, join([ io_lib:format("\"~p\" : ~s", [Field, typeref(Element,Mod)])
-                                   || {Field,Element} <- lists:zip(Fields,Values) ], ", ")]);
-typeref({record_ext,RecName,_,_Elements},_Mod) when is_atom(RecName) ->
+                                   || {Field,Element} <- lists:zip(Fields,Elements) ], ", ")]);
+typeref({record_ext,RecName,_,_Elements0},_Mod) when is_atom(RecName) ->
     erlang:exit(fatal);
 %% list
 typeref({list,0,infinity,Element},Mod) ->
@@ -106,10 +106,11 @@ typeref({float,Value},_Mod) ->
 %% integer
 typeref({integer,Value},_Mod) ->
     io_lib:format("~p", [Value]);
-%% string
-typeref({string,Value},_Mod) ->
-    io_lib:format("{\"$S\" : \"~p\"}", [Value]);
 %% predef
+typeref({predef,any},_Mod) ->
+    "any()";
+typeref({predef,none},_Mod) ->
+    "none()";
 typeref({predef,atom},_Mod) ->
     "atom()";
 typeref({predef,binary},_Mod) ->
@@ -120,29 +121,17 @@ typeref({predef,integer},_Mod) ->
     "integer()";
 typeref({predef,list},_Mod) ->
     "list()";
-typeref({predef,proplist},_Mod) ->
-    "proplist()";
-typeref({predef,string},_Mod) ->
-    "string()";
-typeref({predef,term},_Mod) ->
-    "term()";
 typeref({predef,tuple},_Mod) ->
     "tuple()";
-typeref({predef,void},_Mod) ->
-    erlang:exit(fatal);
 %% predef with attributes
+typeref({predef,{any,Attrs}},_Mod) ->
+    io_lib:format("any(~s)", [join([ atom_to_list(Attr) || Attr <- Attrs ], ",")]);
 typeref({predef,{atom,Attrs}},_Mod) ->
     io_lib:format("atom(~s)", [join([ atom_to_list(Attr) || Attr <- Attrs ], ",")]);
 typeref({predef,{binary,Attrs}},_Mod) ->
     io_lib:format("binary(~s)", [join([ atom_to_list(Attr) || Attr <- Attrs ], ",")]);
 typeref({predef,{list,Attrs}},_Mod) ->
     io_lib:format("list(~s)", [join([ atom_to_list(Attr) || Attr <- Attrs ], ",")]);
-typeref({predef,{proplist,Attrs}},_Mod) ->
-    io_lib:format("proplist(~s)", [join([ atom_to_list(Attr) || Attr <- Attrs ], ",")]);
-typeref({predef,{string,Attrs}},_Mod) ->
-    io_lib:format("string(~s)", [join([ atom_to_list(Attr) || Attr <- Attrs ], ",")]);
-typeref({predef,{term,Attrs}},_Mod) ->
-    io_lib:format("term(~s)", [join([ atom_to_list(Attr) || Attr <- Attrs ], ",")]);
 typeref({predef,{tuple,Attrs}},_Mod) ->
     io_lib:format("tuple(~s)", [join([ atom_to_list(Attr) || Attr <- Attrs ], ",")]);
 %% otherwise
@@ -178,6 +167,12 @@ ubf_contract(Mod) ->
           , "false\n\t\tfalse"
           , "undefined\n\t\tnull"
           , ""
+          , "any()\n\t\tvalue"
+          , "any()?\n\t\tvalue | null"
+          , ""
+          , "none()\n\t\t /* no result is returned */"
+          , "none()?\n\t\t /* no result is returned */ | null"
+          , ""
           , "atom()\n\t\t{\"$A\" : string }"
           , "atom()?\n\t\t{\"$A\" : string } | null"
           , ""
@@ -193,24 +188,15 @@ ubf_contract(Mod) ->
           , "list()\n\t\tarray"
           , "list()?\n\t\tarray | null"
           , ""
-          , "proplist()\n\t\tobject"
-          , "proplist()?\n\t\tobject | undefined"
-          , ""
-          , "string()\n\t\t{\"$S\" : string }"
-          , "string()?\n\t\t{\"$S\" : string } | null"
-          , ""
-          , "term()\n\t\tvalue"
-          , "term()?\n\t\tvalue | null"
-          , ""
           , "tuple()\n\t\t{\"$T\" : array }"
           , "tuple()?\n\t\t{\"$T\" : array } | null"
-          , ""
-          , "void()\n\t\t /* no result is returned */"
-          , "void()?\n\t\t /* no result is returned */ | null"
           , ""
           , "// --------------------"
           , "// type attributes"
           , "//"
+          , ""
+          , "any(AnyAttrs)\n\t\tvalue"
+          , "any(AnyAttrs)?\n\t\tvalue | null"
           , ""
           , "atom(AtomAttrs)\n\t\t{\"$A\" : string }"
           , "atom(AtomAttrs)?\n\t\t{\"$A\" : string } | null"
@@ -221,17 +207,12 @@ ubf_contract(Mod) ->
           , "list(ListAttrs)\n\t\tarray"
           , "list(ListAttrs)?\n\t\tarray | null"
           , ""
-          , "proplist(PropListAttrs)\n\t\tobject"
-          , "proplist(PropListAttrs)?\n\t\tobject | undefined"
-          , ""
-          , "string(StringAttrs)\n\t\t{\"$S\" : string }"
-          , "string(StringAttrs)?\n\t\t{\"$S\" : string } | null"
-          , ""
           , "tuple(TupleAttrs)\n\t\t{\"$T\" : array }"
           , "tuple(TupleAttrs)?\n\t\t{\"$T\" : array } | null"
           , ""
-          , "term(TermAttrs)\n\t\tvalue"
-          , "term(TermAttrs)?\n\t\tvalue | null"
+          , "AnyAttrs"
+          , "\t nonempty"
+          , "\t nonundefined"
           , ""
           , "AtomAttrs"
           , "\t ascii | asciiprintable"
@@ -244,17 +225,6 @@ ubf_contract(Mod) ->
           , ""
           , "ListAttrs"
           , "\t nonempty"
-          , ""
-          , "PropListAttrs"
-          , "\t nonempty"
-          , ""
-          , "StringAttrs"
-          , "\t ascii | asciiprintable"
-          , "\t nonempty"
-          , ""
-          , "TermAttrs"
-          , "\t nonempty"
-          , "\t nonundefined"
           , ""
           , "TupleAttrs"
           , "\t nonempty"

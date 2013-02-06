@@ -1,9 +1,10 @@
 -module(jsf_test_plugin).
+-behaviour(ubf_plugin_stateful).
 
--include("ubf.hrl").
+-include_lib("ubf/include/ubf.hrl").
 
 -export([info/0, description/0,
-         managerStart/1, managerRpc/2,
+         managerStart/1, managerRestart/2, managerRpc/2,
          handlerStart/2, handlerRpc/4, handlerStop/3
         ]).
 
@@ -24,10 +25,12 @@ description() -> "The test server is a ...
 
 managerStart(_) -> {ok, myManagerState}.
 
+managerRestart(_,_) -> ok. %% noop
+
 managerRpc(secret, State) ->
-    {accept, welcomeToFTP, State};
+    {{ok, welcomeToFTP}, State};
 managerRpc(_, State) ->
-    {reject, badPassword, State}.
+    {{error, badPassword}, State}.
 
 %% handlerStart(Args, ManagerPid) ->
 %%   {accept, State, InitialData}
@@ -60,9 +63,9 @@ handlerRpc(funny, List, State, _Env) when is_list(List) ->
 handlerRpc(funny, stop, State, _Env) ->
     {ack, start, State}.
 
-handlerStop(Pid, Reason, State) ->
+handlerStop(Pid, Reason, ManagerState) ->
     io:format("Client stopped:~p ~p~n",[Pid, Reason]),
-    State.
+    ManagerState.
 
 up_case(I) ->
     map(fun to_upper/1 , I).
